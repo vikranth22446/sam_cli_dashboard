@@ -58,6 +58,16 @@ const Sidebar = props => {
       href: '/diff',
       icon: <DashboardIcon />
     },
+    {
+      title: 'IAM Helper',
+      href: '/iam_graph',
+      icon: <DashboardIcon />
+    },
+    {
+      title: 'Generate',
+      href: '/generate',
+      icon: <DashboardIcon />
+    },
     // {
     //   title: 'Products',
     //   href: '/products',
