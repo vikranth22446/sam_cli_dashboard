@@ -15,8 +15,7 @@ import {
   SignUp as SignUpView,
   SignIn as SignInView,
   NotFound as NotFoundView,
-  StaticDashboard as StaticDashboardView,
-  IAMGraph as IAMGraphView
+  StaticDashboard as StaticDashboardView
 } from './views';
 
 const Routes = () => {
@@ -46,7 +45,7 @@ const Routes = () => {
         path="/diff"
       />
       <RouteWithLayout
-        component={IAMGraphView}
+        component={DashboardView}
         exact
         layout={MainLayout}
         path="/iam_graph"
