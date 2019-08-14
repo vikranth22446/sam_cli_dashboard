@@ -7,6 +7,7 @@ import { useMediaQuery } from '@material-ui/core';
 import { default as Sidebar } from './Sidebar';
 import { default as Topbar } from './Topbar';
 import { default as Footer } from './Footer';
+import DragAndDrop from './DragDrop'
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -26,7 +27,7 @@ const useStyles = makeStyles(theme => ({
 
 const Main = props => {
   const { children } = props;
-
+  const [files, setFiles] = useState([])
   const classes = useStyles();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'), {
@@ -44,6 +45,10 @@ const Main = props => {
   };
 
   const shouldOpenSidebar = isDesktop ? true : openSidebar;
+  
+  const handleDrop = (files) => {
+    setFiles(files)
+  }
 
   return (
     <div
@@ -52,16 +57,21 @@ const Main = props => {
         [classes.shiftContent]: isDesktop
       })}
     >
-      <Topbar onSidebarOpen={handleSidebarOpen} />
-      <Sidebar
-        onClose={handleSidebarClose}
-        open={shouldOpenSidebar}
-        variant={isDesktop ? 'persistent' : 'temporary'}
-      />
-      <main className={classes.content}>
-        {children}
-        <Footer />
-      </main>
+    <DragAndDrop handleDrop={handleDrop} className={clsx({
+        [classes.root]: true,
+        [classes.shiftContent]: isDesktop
+      })} style={{'display': 'block'}}>
+          <Topbar onSidebarOpen={handleSidebarOpen} />
+          <Sidebar
+            onClose={handleSidebarClose}
+            open={shouldOpenSidebar}
+            variant={isDesktop ? 'persistent' : 'temporary'}
+          />
+          <main className={classes.content}>
+            {children}
+          </main>
+        </DragAndDrop>
+
     </div>
   );
 };

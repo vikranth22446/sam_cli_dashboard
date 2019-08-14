@@ -13,6 +13,7 @@ import {
   LatestOrders
 } from './components';
 
+
 const useStyles = makeStyles(theme => ({
   root: {
     padding: theme.spacing(4)
@@ -29,43 +30,6 @@ class StaticDashGraph extends Component {
     this.network_ref = React.createRef();
   }
   load_nodes() {
-    // var vis = require('vis-network');
-    // var options = {
-    //   physics: {
-    //     stabilization: false,
-    //     barnesHut: {
-    //       springLength: 200
-    //     }
-    //   }
-    // };
-    // var data = {};
-    // var network = new vis.Network(this.network_ref.current, data, options);
-    // data = vis.network.convertDot(this.state.data.dot);
-    // network.setData(data);
-    // var clustering_options = {
-    //   joinCondition: function(nodeOptions) {
-    //     return true;
-    //   },
-    //   processProperties: function(clusterOptions, childNodes, childEdges) {
-    //     // var totalMass = 0;
-    //     // var totalValue = 0;
-    //     // for (var i = 0; i < childNodes.length; i++) {
-    //     //   totalMass += childNodes[i].mass;
-    //     //   totalValue = childNodes[i].value
-    //     //     ? totalValue + childNodes[i].value
-    //     //     : totalValue;
-    //     // }
-    //     // clusterOptions.mass = totalMass;
-    //     // if (totalValue > 0) {
-    //     //   clusterOptions.value = totalValue;
-    //     // }
-    //     clusterOptions.shadow = true;
-    //     clusterOptions.color = "#ffffff";
-    //     clusterOptions.style = "dotted";
-    //     return clusterOptions;
-    //   }
-    // };
-    // network.clustering.cluster(clustering_options);
   }
   componentDidMount() {
     this.mounted = true;
@@ -80,9 +44,22 @@ class StaticDashGraph extends Component {
           '/Users/viksriva/Documents/sandbox/SamCliTelemetryIngestionLambda/template.yaml'
       })
     })
-      .then(response => response.json())
-      .then(data => {
-        this.setState({ data }, () => this.load_nodes());
+      // .then(response => response.json())
+      .then(response => {
+        // const filename =  response.headers.get('Content-Disposition').split('filename=')[1];
+        response.blob().then(blob => {
+          let url = window.URL.createObjectURL(blob);
+          let a = document.createElement('a');
+          a.href = url;
+          a.download = 'resources.png';
+          a.click();
+          setTimeout(function(){
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);  
+          }, 100);  
+        });
+
+        // this.setState({ data }, () => this.load_nodes());
       });
   }
 

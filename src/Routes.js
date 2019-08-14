@@ -15,7 +15,9 @@ import {
   SignUp as SignUpView,
   SignIn as SignInView,
   NotFound as NotFoundView,
-  StaticDashboard as StaticDashboardView
+  StaticDashboard as StaticDashboardView,
+  IAMGraph as IAMGraphView,
+  SarBrowser as SarBrowserView
 } from './views';
 
 const Routes = () => {
@@ -33,22 +35,22 @@ const Routes = () => {
         path="/dashboard"
       />
       <RouteWithLayout
-        component={StaticDashboardView}
+        component={IAMGraphView}
         exact
         layout={MainLayout}
-        path="/static_dashboard"
+        path="/iam_graph"
+      />
+       <RouteWithLayout
+        component={SarBrowserView}
+        exact
+        layout={MainLayout}
+        path="/sar_browser"
       />
       <RouteWithLayout
         component={UserListView}
         exact
         layout={MainLayout}
         path="/diff"
-      />
-      <RouteWithLayout
-        component={DashboardView}
-        exact
-        layout={MainLayout}
-        path="/iam_graph"
       />
       <RouteWithLayout
         component={ProductListView}

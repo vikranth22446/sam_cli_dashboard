@@ -40,7 +40,7 @@ const UpgradePlan = props => {
       <div className={classes.media}>
         <img
           alt="Check out the console"
-          src="http://127.0.0.1:5000/static/pseudo_type.png"
+          src="http://127.0.0.1:5000/static/icon_map/pseudo_type.png"
         />
       </div>
       <div className={classes.content}>
