@@ -1,0 +1,286 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS SAM template for a simple lambda function
+
+Globals:
+  # Operational Settings for each resource
+  Function:
+    AutoPublishAlias: live
+    DeploymentPreference:
+      Type: AllAtOnce
+    Tracing: PassThrough
+    Environment:
+      Variables:
+        LOGLEVEL: {
+          "Fn::If": ["EnableDebugging", "DEBUG", "INFO"]
+        }
+
+  Api:
+    EndpointConfiguration: REGIONAL
+    TracingEnabled: True
+
+    MethodSettings:
+      - DataTraceEnabled: False
+        HttpMethod: '*'
+        LoggingLevel: "INFO"
+        ResourcePath: '/*'
+        MetricsEnabled: True
+
+        # Throttling limits are per-second limits. These numbers will be refined in production to prevent
+        # abuse of the API.
+        ThrottlingBurstLimit: 1000
+        ThrottlingRateLimit: 500
+
+    AccessLogSetting:
+      DestinationArn:
+        "Fn::GetAtt": IngestionApiLogGroup.Arn
+      Format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "caller":"$context.identity.caller", "user":"$context.identity.user", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "resourcePath":"$context.resourcePath", "status":"$context.status", "protocol":"$context.protocol", "responseLength":"$context.responseLength", "message": "$context.error.message", "timestamp": "$context.requestTime" }'
+
+
+Outputs:
+  StackArn:
+    Description: Use this as the stack_arn in your cloud_formation_deployment_stack
+      override.
+    Value: {Ref: 'AWS::StackId'}
+
+  ApiUrl:
+    Description: URL of the Ingestion API
+    Value: {"Fn::Sub": "https://${IngestionApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${Stage}"}
+
+  FunctionArn:
+    Description: ARN of the function/alias that is connected to the API
+    Value: {"Ref": "TransformationMetricFunction.Alias"}
+
+Parameters:
+  Stage: {Type: String, Default: 'beta'}
+
+  # 10years of Log Retention - Default AWS Recommendation
+  LogRetentionDays:
+    Type: Number
+    Default: 3653
+
+  EnableDebuggingParam: {Type: String, Default: 'false', AllowedValues: ['true', 'false']}
+
+  EndpointCertificateArn:
+    Type: String
+
+Conditions:
+
+  EnableDebugging:
+    'Fn::Equals':
+      - {Ref: EnableDebuggingParam}
+      - 'true'
+
+  ProdEnvironment: !Equals [!Ref Stage, "prod"]
+
+Resources:
+
+  ####### Primary resources: Functions, APIs etc #######
+  TransformationMetricFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./ingestion_service/
+      Handler: handler.transform_metric_records
+      MemorySize: 512
+      Runtime: python3.7
+      Timeout: 120
+      Events:
+        ReportApi:
+          Type: Api
+          Properties:
+            Path: "/metrics"
+            Method: "post"
+
+  IngestionApi:
+    Type: AWS::Serverless::Api
+    DependsOn: ApiGatewayAccount
+    Properties:
+      DefinitionBody:
+        'Fn::Transform':
+          Name: 'AWS::Include'
+          Parameters:
+            Location: ./swagger.json
+
+      StageName: {Ref: Stage}
+      Variables:
+        IngestionFunctionArn: {"Fn::GetAtt": "TransformationMetricFunction.Arn"}
+
+  SourceMetricsAccessLoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: LogDeliveryWrite
+
+  SourceMetricsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LoggingConfiguration:
+        DestinationBucketName: !Ref SourceMetricsAccessLoggingBucket
+        LogFilePrefix: source-metrics
+
+  # This Bucket Policy is to block any request that is not done through HTTPS on the S3 Bucket.
+  SourceMetricsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SourceMetricsBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Deny
+            Action:
+              - s3:*
+            Principal: "*"
+            Resource:
+              - Fn::GetAtt: [ SourceMetricsBucket , Arn ]
+              - Fn::Join:
+                - ""
+                - - Fn::GetAtt: [ SourceMetricsBucket , Arn ]
+                  - "/*"
+            Condition:
+              Bool: { "aws:SecureTransport": false }
+
+  KinesisRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - firehose.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: KinesisRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - Fn::GetAtt: [ SourceMetricsBucket , Arn ]
+                  - Fn::Join:
+                      - ""
+                      - - Fn::GetAtt: [ SourceMetricsBucket , Arn ]
+                        - "/*"
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                  - 'lambda:GetFunctionConfiguration'
+                Resource:
+                  - !GetAtt TransformationMetricFunction.Arn
+
+  EventFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        BucketARN:
+          Fn::GetAtt: [ SourceMetricsBucket, Arn ]
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 10
+        CompressionFormat: GZIP
+        Prefix: events/
+        RoleARN:
+          Fn::GetAtt: [ KinesisRole, Arn ]
+        ProcessingConfiguration:
+          Enabled: true
+          Processors:
+            - Type: Lambda
+              Parameters:
+                - ParameterName: LambdaArn
+                  ParameterValue: !GetAtt TransformationMetricFunction.Arn
+
+  ####### Supporting Resources such as Roles, Log groups etc #######
+
+  TelemetryEndpointDomainName:
+    Type: AWS::ApiGateway::DomainName
+    Condition: ProdEnvironment
+    Properties:
+      DomainName: aws-serverless-tools-telemetry.us-west-2.amazonaws.com
+      RegionalCertificateArn: !Ref EndpointCertificateArn
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  TelemetryEndpointBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Condition: ProdEnvironment
+    Properties:
+      DomainName: !Ref TelemetryEndpointDomainName
+      RestApiId: !Ref IngestionApi
+      Stage: !Ref Stage
+
+  TransformationMetricFunctionLogGroup:
+    DependsOn: TransformationMetricFunction
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: {"Fn::Sub": "/aws/lambda/${TransformationMetricFunction}"} # Default lambda log group naming format
+      RetentionInDays: {Ref: LogRetentionDays}
+
+  IngestionApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: {"Fn::Sub": "/${AWS::StackName}/Logs/Api"}
+      RetentionInDays: {Ref: LogRetentionDays}
+
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: {"Fn::GetAtt": "ApiLoggingRole.Arn"}
+
+  ApiLoggingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - {"Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"}
+
+  ApiGatewayToFirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: apigAwsProxyRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        -
+          PolicyName: "root"
+          PolicyDocument:
+              "Version": "2012-10-17"
+              "Statement":
+                -
+                  "Effect": "Allow"
+                  "Action":
+                    -
+                      "firehose:PutRecord"
+                  "Resource":
+                    Fn::GetAtt: [ EventFirehose, Arn ]
